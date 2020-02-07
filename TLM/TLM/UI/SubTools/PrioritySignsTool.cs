@@ -33,7 +33,9 @@ namespace TrafficManager.UI.SubTools {
         public override void OnPrimaryClickOverlay() {
             bool ctrlDown = Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl);
             bool shiftDown = Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift);
-            if(ctrlDown || shiftDown) {
+            bool altDown = Input.GetKey(KeyCode.LeftAlt) || Input.GetKey(KeyCode.RightAlt);
+
+            if (ctrlDown || shiftDown) {
                 if (HoveredSegmentId == 0) {
                     return;
                 }
@@ -44,12 +46,12 @@ namespace TrafficManager.UI.SubTools {
             if (ctrlDown && shiftDown) {
                 bool isRAbout = RoundaboutMassEdit.Instance.FixRabout(HoveredSegmentId);
                 if (!isRAbout) {
-                    PriorityRoad.FixRoad(HoveredSegmentId);
+                    PriorityRoad.FixRoad(HoveredSegmentId, altDown);
                 }
                 RefreshMassEditOverlay();
                 return;
             } else if (ctrlDown) {
-                PriorityRoad.FixJunction(HoveredNodeId);
+                PriorityRoad.FixJunction(HoveredNodeId, altDown);
                 RefreshMassEditOverlay();
                 return;
             }

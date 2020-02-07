@@ -51,13 +51,21 @@ namespace TrafficManager.Util {
         /// Quick-setups as priority junction: for every junctions on the road contianing
         /// the input segment traversing straight.
         /// </summary>
-        public static void FixRoad(ushort initialSegmentId) {
-            SegmentTraverser.Traverse(
-                initialSegmentId,
-                TraverseDirection.AnyDirection,
-                TraverseSide.Straight,
-                SegmentStopCriterion.None,
-                VisitorFunc);
+        public static void FixRoad(ushort initialSegmentId, bool alt= false) {
+            if(!alt)
+                SegmentTraverser.Traverse(
+                    initialSegmentId,
+                    TraverseDirection.AnyDirection,
+                    TraverseSide.Straight,
+                    SegmentStopCriterion.None,
+                    VisitorFunc);
+            else
+                SegmentTraverser.Traverse(
+                    initialSegmentId,
+                    TraverseDirection.AnyDirection,
+                    TraverseSide.Straight,
+                    SegmentStopCriterion.None,
+                    ALTVisitorFunc);
         }
 
         private static bool VisitorFunc(SegmentVisitData data) {
@@ -65,6 +73,15 @@ namespace TrafficManager.Util {
             foreach (bool startNode in Constants.ALL_BOOL) {
                 ushort nodeId = netService.GetSegmentNodeId(segmentId, startNode);
                 FixJunction(nodeId);
+            }
+            return true;
+        }
+
+        private static bool ALTVisitorFunc(SegmentVisitData data) {
+            ushort segmentId = data.CurSeg.segmentId;
+            foreach (bool startNode in Constants.ALL_BOOL) {
+                ushort nodeId = netService.GetSegmentNodeId(segmentId, startNode);
+                FixJunction(nodeId, alt:true);
             }
             return true;
         }
@@ -139,7 +156,7 @@ namespace TrafficManager.Util {
         ///  - split avenue into 2 oneway roads
         ///  - semi-roundabout
         /// </summary>
-        public static void FixJunction(ushort nodeId) {
+        public static void FixJunction(ushort nodeId, bool alt=false) {
             if (nodeId == 0) {
                 return;
             }
@@ -193,7 +210,7 @@ namespace TrafficManager.Util {
 
             for (int i = 0; i < segmentList.Count; ++i) {
                 if (i < 2) {
-                    FixMajorSegmentRules(segmentList[i], nodeId);
+                    FixMajorSegmentRules(segmentList[i], nodeId, alt);
                     if(!ignoreLanes) {
                         FixMajorSegmentLanes(segmentList[i], nodeId);
                     }
@@ -212,11 +229,11 @@ namespace TrafficManager.Util {
             return dir;
         }
 
-        private static void FixMajorSegmentRules(ushort segmentId, ushort nodeId) {
+        private static void FixMajorSegmentRules(ushort segmentId, ushort nodeId, bool alt=false) {
             Log._Debug($"FixMajorSegmentRules({segmentId}, {nodeId}) was called");
             bool startNode = (bool)netService.IsStartNode(segmentId, nodeId);
             JunctionRestrictionsManager.Instance.SetEnteringBlockedJunctionAllowed(segmentId, startNode, true);
-            if(!OptionsMassEditTab.PriorityRoad_CrossMainR) {
+            if(!(OptionsMassEditTab.PriorityRoad_CrossMainR^alt)) {
                 JunctionRestrictionsManager.Instance.SetPedestrianCrossingAllowed(segmentId, startNode, false);
             }
             TrafficPriorityManager.Instance.SetPrioritySign(segmentId, startNode, PriorityType.Main);
