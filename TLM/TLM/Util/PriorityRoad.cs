@@ -233,7 +233,10 @@ namespace TrafficManager.Util {
             Log._Debug($"FixMajorSegmentRules({segmentId}, {nodeId}) was called");
             bool startNode = (bool)netService.IsStartNode(segmentId, nodeId);
             JunctionRestrictionsManager.Instance.SetEnteringBlockedJunctionAllowed(segmentId, startNode, true);
-            if(!(OptionsMassEditTab.PriorityRoad_CrossMainR^alt)) {
+            if (alt) {
+                JunctionRestrictionsManager.Instance.SetPedestrianCrossingAllowed(
+                    segmentId, startNode, true);
+            } else if (!OptionsMassEditTab.PriorityRoad_CrossMainR) {
                 JunctionRestrictionsManager.Instance.SetPedestrianCrossingAllowed(segmentId, startNode, false);
             }
             TrafficPriorityManager.Instance.SetPrioritySign(segmentId, startNode, PriorityType.Main);
