@@ -294,9 +294,7 @@ namespace TrafficManager.UI.SubTools {
 
         bool UseStopSigns = false;
         private void ToolWindow(int num) {
-            if(GUILayout.Toggle(UseStopSigns, "Use Stop Signs")) {
-                UseStopSigns = !UseStopSigns;
-            }
+            UseStopSigns = GUILayout.Toggle(UseStopSigns, "Use Stop Signs");
             AddShiftButton();
             AddMPButton();
             AddHPButton();

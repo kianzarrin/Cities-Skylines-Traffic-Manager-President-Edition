@@ -219,7 +219,7 @@ namespace TrafficManager.Util {
         }
 
         private static void FixMajorSegmentRules(ushort segmentId, ushort nodeId, bool alt=false) {
-            Log._Debug($"FixMajorSegmentRules({segmentId}, {nodeId}) was called");
+            Log._Debug($"FixMajorSegmentRules({segmentId}, {nodeId}, {alt}) was called");
             bool startNode = (bool)netService.IsStartNode(segmentId, nodeId);
             JunctionRestrictionsManager.Instance.SetEnteringBlockedJunctionAllowed(segmentId, startNode, true);
             if (alt) {
