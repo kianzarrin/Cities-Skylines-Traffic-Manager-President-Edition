@@ -138,7 +138,7 @@ namespace TrafficManager.UI.SubTools {
         }
 
         #region test GUI
-        private Rect windowRect = TrafficManagerTool.MoveGUI(new Rect(0, 0, 1, 1));
+        private Rect windowRect = TrafficManagerTool.MoveGUI(new Rect(0, 0, 100, 100));
         private bool cursorInSecondaryPanel;
         private Texture2D windowTexture_;
         private GUIStyle windowStyle_;
@@ -182,20 +182,13 @@ namespace TrafficManager.UI.SubTools {
 
         public override void OnToolGUI(Event e) {
             base.OnToolGUI(e);
-
-            if (SelectedSegmentId != 0) {
-                cursorInSecondaryPanel = false;
-
-                windowRect = GUILayout.Window(
-                    255,
-                    windowRect,
-                    ToolWindow,
-                    "",
-                    WindowStyle);
-                cursorInSecondaryPanel = windowRect.Contains(Event.current.mousePosition);
-
-            }
-
+            windowRect = GUILayout.Window(
+                255,
+                windowRect,
+                ToolWindow,
+                "",
+                WindowStyle);
+            cursorInSecondaryPanel = windowRect.Contains(Event.current.mousePosition);
         }
 
         private static bool shift => Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift);
@@ -212,18 +205,20 @@ namespace TrafficManager.UI.SubTools {
         PrioirtyLevel _priorityLevel = 0;
         bool _multiMode = false;
 
+        Color multiModeColor = Color.cyan;
         bool MultiMode => _multiMode || shift;
         bool SimpleMode => _priorityLevel == PrioirtyLevel.None && !ctrl;
         bool HPMode => !(alt && ctrl) && (_priorityLevel == PrioirtyLevel.High || ctrl);
         bool MPMode => (alt && ctrl) || _priorityLevel == PrioirtyLevel.Meduim;
         bool PMode => HPMode || MPMode;
 
+
         private void AddShiftButton() {
             Color oldColor = GUI.color;
 
             GUIStyle style = new GUIStyle("button");
-            if (shift) {
-                GUI.color = Color.blue;
+            if (MultiMode) {
+                GUI.color = multiModeColor;
                 style.normal.background = style.active.background;
             }
 
@@ -238,10 +233,10 @@ namespace TrafficManager.UI.SubTools {
             Color oldColor = GUI.color;
 
             GUIStyle style = new GUIStyle("button");
-            if (ctrl && !alt)
+            if (HPMode)
                 style.normal.background = style.active.background;
-            if(shift)
-                GUI.color = Color.blue;
+            if(MultiMode)
+                GUI.color = multiModeColor;
 
 
             bool clicked = GUILayout.Button("High proirty [ctrl]", style);
@@ -259,15 +254,15 @@ namespace TrafficManager.UI.SubTools {
             Color oldColor = GUI.color;
 
             GUIStyle style = new GUIStyle("button");
-            if (ctrl && alt)
+            if (MPMode)
                 style.normal.background = style.active.background;
-            if (shift)
-                GUI.color = Color.blue;
+            if (MultiMode)
+                GUI.color = multiModeColor;
 
             bool clicked = GUILayout.Button("Meduim proirty [alt+ctrl]", style);
             if (clicked) {
                 _priorityLevel =
-                    _priorityLevel != PrioirtyLevel.High ?
+                    _priorityLevel != PrioirtyLevel.Meduim ?
                     PrioirtyLevel.Meduim :
                     PrioirtyLevel.None;
             }
@@ -283,11 +278,11 @@ namespace TrafficManager.UI.SubTools {
 
             if (Input.GetKey(hotkey))
                 style.normal.background = style.active.background;
-            if (shift)
-                GUI.color = Color.blue;
+            if (MultiMode)
+                GUI.color = multiModeColor;
 
             bool clicked =
-                GUILayout.Button("Clear [del]", style)
+                GUILayout.Button("Clear [del]", style )
                 || Input.GetKeyDown(hotkey);
 
             if (clicked) {
@@ -299,7 +294,9 @@ namespace TrafficManager.UI.SubTools {
 
         bool UseStopSigns = false;
         private void ToolWindow(int num) {
-            GUILayout.Toggle(UseStopSigns, "Use Stop Signs");
+            if(GUILayout.Toggle(UseStopSigns, "Use Stop Signs")) {
+                UseStopSigns = !UseStopSigns;
+            }
             AddShiftButton();
             AddMPButton();
             AddHPButton();
@@ -395,23 +392,20 @@ namespace TrafficManager.UI.SubTools {
                 return;
             }
 
-            bool ctrlDown = Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl);
-            bool shiftDown = Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift);
+            MassEditOVerlay.Show = PMode;
 
-            MassEditOVerlay.Show = ctrlDown;
-
-            if (ctrlDown) {
+            if (PMode) {
                 massEditMode = PrioritySignsMassEditMode.MainYield;
             }
 
             if (HoveredSegmentId == 0) {
-                if(shiftDown) {
+                if(MultiMode) {
                     massEditMode = PrioritySignsMassEditMode.MainYield;
                 }
                 return;
             }
 
-            if (shiftDown) {
+            if (MultiMode) {
                 bool isRAbout = RoundaboutMassEdit.Instance.TraverseLoop(HoveredSegmentId, out var segmentList);
                 Color color = MainTool.GetToolColor(Input.GetMouseButton(0), false);
                 if (isRAbout) {
@@ -440,7 +434,7 @@ namespace TrafficManager.UI.SubTools {
                         });
                 }
                 return;
-            } else if (ctrlDown) {
+            } else if (PMode) {
                 MainTool.DrawNodeCircle(cameraInfo, HoveredNodeId, Input.GetMouseButton(0));
                 return;
             }
