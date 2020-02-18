@@ -1,36 +1,51 @@
 namespace TrafficManager.UI {
-    using ColossalFramework.Math;
-    using ColossalFramework.UI;
-    using ColossalFramework;
-    using CSUtil.Commons;
-    using JetBrains.Annotations;
+    using System;
     using System.Collections.Generic;
     using System.Linq;
     using System.Text;
-    using System;
     using TrafficManager.API.Manager;
     using TrafficManager.API.Traffic.Data;
     using TrafficManager.API.Traffic.Enums;
     using TrafficManager.API.Util;
+    using ColossalFramework;
+    using ColossalFramework.Math;
+    using ColossalFramework.UI;
+    using CSUtil.Commons;
+    using JetBrains.Annotations;
     using TrafficManager.Manager.Impl;
-    using TrafficManager.State.ConfigData;
     using TrafficManager.State;
+    using TrafficManager.State.ConfigData;
     using TrafficManager.UI.MainMenu;
-    using TrafficManager.UI.SubTools.SpeedLimits;
     using TrafficManager.UI.SubTools;
+    using TrafficManager.UI.SubTools.SpeedLimits;
     using TrafficManager.Util;
     using UnityEngine;
+    using TrafficManager.UI.Helpers;
 
     [UsedImplicitly]
     public class TrafficManagerTool
         : DefaultTool,
           IObserver<GlobalConfig>
     {
+        public GuideHandler Guide;
+
         private ToolMode toolMode_;
         private NetTool _netTool;
 
+
+        /// <summary>
+        /// Maximum error of HitPos field.
+        /// </summary>
+        internal const float MAX_HIT_ERROR = 2.5f;
+
         internal static ushort HoveredNodeId;
         internal static ushort HoveredSegmentId;
+
+        /// <summary>
+        /// the hit position of the mouse raycast in meters.
+        /// </summary>
+        internal static Vector3 HitPos;
+        internal Vector3 MousePosition => m_mousePosition; //expose protected member.
 
         private static bool _mouseClickProcessed;
 
@@ -55,11 +70,16 @@ namespace TrafficManager.UI {
             ExtVehicleType.Service, ExtVehicleType.RailVehicle
         };
 
-        private static SubTool _activeSubTool;
+        private SubTool _activeSubTool;
 
         private static IDisposable _confDisposable;
 
         static TrafficManagerTool() { }
+
+        protected override void OnDestroy() {
+            Log.Info("TrafficManagerTool.OnDestroy() called");
+            base.OnDestroy();
+        }
 
         internal ToolController GetToolController() {
             return m_toolController;
@@ -146,6 +166,7 @@ namespace TrafficManager.UI {
 
         internal void Initialize() {
             Log.Info("TrafficManagerTool: Initialization running now.");
+            Guide = new GuideHandler();
 
             SubTool timedLightsTool = new TimedTrafficLightsTool(this);
 
@@ -175,6 +196,7 @@ namespace TrafficManager.UI {
 
             Log.Info("TrafficManagerTool: Initialization completed.");
         }
+
 
         public void OnUpdate(GlobalConfig config) {
             InitializeSubTools();
@@ -269,6 +291,7 @@ namespace TrafficManager.UI {
 
                 if (realToolChange) {
                     ShowAdvisor(_activeSubTool.GetTutorialKey());
+                    Guide.DeactivateAll();
                 }
             }
         }
@@ -523,6 +546,54 @@ namespace TrafficManager.UI {
                 1280f,
                 false,
                 alpha);
+        }
+
+        /// <summary>
+        /// similar to NetTool.RenderOverlay()
+        /// but with additional control over alphaBlend.
+        /// </summary>
+        internal static void DrawSegmentOverlay(
+            RenderManager.CameraInfo cameraInfo,
+            ushort segmentId,
+            Color color,
+            bool alphaBlend) {
+            if (segmentId == 0) {
+                return;
+            }
+
+            ref NetSegment segment = ref Singleton<NetManager>.instance.m_segments.m_buffer[segmentId];
+            float width = segment.Info.m_halfWidth;
+
+            NetNode[] nodeBuffer = Singleton<NetManager>.instance.m_nodes.m_buffer;
+            bool IsMiddle(ushort nodeId) => (nodeBuffer[nodeId].m_flags & NetNode.Flags.Middle) != 0;
+
+            Bezier3 bezier;
+            bezier.a = GetNodePos(segment.m_startNode);
+            bezier.d = GetNodePos(segment.m_endNode);
+
+            NetSegment.CalculateMiddlePoints(
+                bezier.a,
+                segment.m_startDirection,
+                bezier.d,
+                segment.m_endDirection,
+                IsMiddle(segment.m_startNode),
+                IsMiddle(segment.m_endNode),
+                out bezier.b,
+                out bezier.c);
+
+            Singleton<ToolManager>.instance.m_drawCallData.m_overlayCalls++;
+            Singleton<RenderManager>.instance.OverlayEffect.DrawBezier(
+                cameraInfo,
+                color,
+                bezier,
+                width * 2f,
+                0,
+                0,
+                -1f,
+                1280f,
+                false,
+                alphaBlend);
+
         }
 
         [UsedImplicitly]
@@ -820,9 +891,18 @@ namespace TrafficManager.UI {
             return RayCast(input, out output);
         }
 
-        private bool DetermineHoveredElements() {
+        private static Vector3 prev_mousePosition;
+        private bool DetermineHoveredElements() {            
+            if(prev_mousePosition == m_mousePosition) {
+                // if mouse ray is not changing use cached results.
+                // the assumption is that its practically impossible to change mouse ray
+                // without changing m_mousePosition.
+                return HoveredNodeId != 0 || HoveredSegmentId != 0;
+            }
+
             HoveredSegmentId = 0;
             HoveredNodeId = 0;
+            HitPos = m_mousePosition;
 
             bool mouseRayValid = !UIView.IsInsideUI() && Cursor.visible &&
                                  (_activeSubTool == null || !_activeSubTool.IsCursorInPanel());
@@ -916,6 +996,10 @@ namespace TrafficManager.UI {
                         }
                     }
                 }
+                
+                if(HoveredSegmentId != 0) {
+                    HitPos = segmentOutput.m_hitPos;
+                }
 
                 if (HoveredNodeId <= 0 && HoveredSegmentId > 0) {
                     // alternative way to get a node hit: check distance to start and end nodes
@@ -968,7 +1052,29 @@ namespace TrafficManager.UI {
             return minSegId;
         }
 
-         /// <summary>
+        private static float prev_H = 0f;
+        private static float prev_H_Fixed;
+
+        /// <summary>
+        /// Calculates accurate vertical element of raycast hit position.
+        /// </summary>
+        internal static float GetAccurateHitHeight() {
+            // cache result.
+            if (HitPos.y == prev_H) {
+                return prev_H_Fixed;
+            }
+            prev_H = HitPos.y;
+
+            if (Shortcuts.GetSeg(HoveredSegmentId).GetClosestLanePosition(
+                HitPos, NetInfo.LaneType.All, VehicleInfo.VehicleType.All,
+                out Vector3 pos, out uint laneID, out int laneIndex, out float laneOffset)) {
+                
+                return prev_H_Fixed = pos.y;
+            }
+            return prev_H_Fixed = HitPos.y + 0.5f;
+        }
+
+        /// <summary>
         /// Displays lane ids over lanes
         /// </summary>
         private void GuiDisplayLanes(ushort segmentId,
@@ -1728,6 +1834,11 @@ namespace TrafficManager.UI {
             return boundingBox.Contains(Event.current.mousePosition);
         }
 
+
+        /// <summary>
+        /// Sometimes (eg when clicking overlay sprites - TODO why?) this method should
+        /// be used instead of Input.GetMouseButtonDown(0)
+        /// </summary>
         internal bool CheckClicked() {
             if (Input.GetMouseButtonDown(0) && !_mouseClickProcessed) {
                 _mouseClickProcessed = true;

@@ -8,6 +8,7 @@ namespace TrafficManager.UI.SubTools {
     using TrafficManager.Manager.Impl;
     using TrafficManager.State;
     using UnityEngine;
+    using static TrafficManager.Util.Shortcuts;
 
     public class LaneArrowTool : SubTool {
         private bool cursorInSecondaryPanel_;
@@ -15,8 +16,43 @@ namespace TrafficManager.UI.SubTools {
         public LaneArrowTool(TrafficManagerTool mainTool)
             : base(mainTool) { }
 
+        /// <summary>
+        /// if the segment has at least one lane without outgoing lane connections, then it can be reset.
+        /// </summary>
+        /// <returns>true if the segemnt can be reset.</returns>
+        private static bool CanReset(ushort segmentId, bool startNode) {
+            foreach (var lanePos in netService.GetSortedLanes(
+                segmentId,
+                ref GetSeg(segmentId),
+                startNode,
+                LaneArrowManager.LANE_TYPES,
+                LaneArrowManager.VEHICLE_TYPES)) {
+                if (!LaneConnectionManager.Instance.HasConnections(lanePos.laneId)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
         public override bool IsCursorInPanel() {
             return base.IsCursorInPanel() || cursorInSecondaryPanel_;
+        }
+
+        private void HandleResult(SetLaneArrowError result) {
+            switch (result) {
+                case SetLaneArrowError.HighwayArrows: {
+                        MainTool.Guide.Activate("LaneArrowTool_Disabled due to highway rules");
+                        break;
+                    }
+                case SetLaneArrowError.LaneConnection: {
+                        MainTool.Guide.Activate("LaneArrowTool_Disabled due to lane connections");
+                        break;
+                    }
+                case SetLaneArrowError.Success:
+                    MainTool.Guide.Deactivate("LaneArrowTool_Disabled due to highway rules");
+                    MainTool.Guide.Deactivate("LaneArrowTool_Disabled due to lane connections");
+                    break;
+            }
         }
 
         public override void OnPrimaryClickOverlay() {
@@ -40,26 +76,14 @@ namespace TrafficManager.UI.SubTools {
             SetLaneArrowError res = SetLaneArrowError.Success;
             if (altDown) {
                 LaneArrowManager.SeparateTurningLanes.SeparateSegmentLanes(HoveredSegmentId, HoveredNodeId, out res);
+                HandleResult(res);
             } else if (ctrlDown) {
                 LaneArrowManager.SeparateTurningLanes.SeparateNode(HoveredNodeId, out res);
+                HandleResult(res);
             } else if (HasHoverLaneArrows()) {
                 SelectedSegmentId = HoveredSegmentId;
                 SelectedNodeId = HoveredNodeId;
             }
-            switch (res) {
-                case SetLaneArrowError.HighwayArrows: {
-                     MainTool.ShowError(
-                        Translation.LaneRouting.Get("Dialog.Text:Disabled due to highway rules"));
-                        break;
-                }
-
-                case SetLaneArrowError.LaneConnection: {
-                    MainTool.ShowError(
-                       Translation.LaneRouting.Get("Dialog.Text:Disabled due to manual connection"));
-                        break;
-                    }
-            }
-
         }
 
         public override void OnSecondaryClickOverlay() {
@@ -104,7 +128,13 @@ namespace TrafficManager.UI.SubTools {
             }
 
             int width = numLanes * 128;
-            var windowRect3 = new Rect(screenPos.x - (width / 2), screenPos.y - 70, width, 50);
+            int height = 50;
+            bool startNode = (bool)netService.IsStartNode(SelectedSegmentId, SelectedNodeId);
+            if (CanReset(SelectedSegmentId, startNode)) {
+                height += 40;
+            }
+
+            var windowRect3 = new Rect(screenPos.x - (width / 2), screenPos.y - 70, width, height);
             GUILayout.Window(250, windowRect3, GuiLaneChangeWindow, string.Empty, BorderlessStyle);
             cursorInSecondaryPanel_ = windowRect3.Contains(Event.current.mousePosition);
         }
@@ -162,7 +192,6 @@ namespace TrafficManager.UI.SubTools {
                 }
                 return base.HoveredNodeId;
             }
-            set => base.HoveredNodeId = value;
         }
 
         /// <summary>
@@ -245,18 +274,18 @@ namespace TrafficManager.UI.SubTools {
                 return;
             }
 
+            GUILayout.BeginVertical();
             GUILayout.BeginHorizontal();
+            var style1 = new GUIStyle("button");
+            var style2 = new GUIStyle("button") {
+                normal = { textColor = new Color32(255, 0, 0, 255) },
+                hover = { textColor = new Color32(255, 0, 0, 255) },
+                focused = { textColor = new Color32(255, 0, 0, 255) }
+            };
 
             for (var i = 0; i < laneList.Count; i++) {
                 var flags = (NetLane.Flags)Singleton<NetManager>
                                            .instance.m_lanes.m_buffer[laneList[i].laneId].m_flags;
-
-                var style1 = new GUIStyle("button");
-                var style2 = new GUIStyle("button") {
-                    normal = { textColor = new Color32(255, 0, 0, 255) },
-                    hover = { textColor = new Color32(255, 0, 0, 255) },
-                    focused = { textColor = new Color32(255, 0, 0, 255) }
-                };
 
                 var laneStyle = new GUIStyle { contentOffset = new Vector2(12f, 0f) };
 
@@ -319,19 +348,7 @@ namespace TrafficManager.UI.SubTools {
                 }
 
                 if (buttonClicked) {
-                    switch (res) {
-                        case SetLaneArrowError.HighwayArrows: {
-                            MainTool.ShowError(
-                                Translation.LaneRouting.Get("Dialog.Text:Disabled due to highway rules"));
-                            break;
-                        }
-
-                        case SetLaneArrowError.LaneConnection: {
-                            MainTool.ShowError(
-                                Translation.LaneRouting.Get("Dialog.Text:Disabled due to manual connection"));
-                            break;
-                        }
-                    }
+                    HandleResult(res);
                 }
 
                 GUILayout.EndHorizontal();
@@ -340,6 +357,30 @@ namespace TrafficManager.UI.SubTools {
             }
 
             GUILayout.EndHorizontal();
+
+            if (CanReset(SelectedSegmentId, (bool)startNode)) {
+                string reset = Translation.LaneRouting.Get("Button:Reset");
+                reset += " [del] "; // hotkey
+                var hotkey = KeyCode.Delete;
+                var style = new GUIStyle("button");
+                if (Input.GetKey(hotkey)) {
+                    style.normal.background = style.active.background;
+                }
+
+                if (GUILayout.Button(
+                    reset,
+                    style,
+                    GUILayout.Width(135), // intentionally big to avoid confusion
+                    GUILayout.Height(25)) ||
+                    Input.GetKeyDown(hotkey)) { 
+                    Log._Debug("deleting lane arrows: " +
+                        $"SelectedSegmentId={SelectedSegmentId} SelectedNodeId={SelectedNodeId} startNode={startNode}");
+                    LaneArrowManager.Instance.ResetLaneArrows(SelectedSegmentId, startNode);
+                }
+            }
+
+            GUILayout.EndVertical();
+
         }
     }
 }
