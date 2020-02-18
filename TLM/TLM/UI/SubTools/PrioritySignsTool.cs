@@ -31,11 +31,7 @@ namespace TrafficManager.UI.SubTools {
         }
 
         public override void OnPrimaryClickOverlay() {
-            bool ctrlDown = Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl);
-            bool shiftDown = Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift);
-            bool altDown = Input.GetKey(KeyCode.LeftAlt) || Input.GetKey(KeyCode.RightAlt);
-
-            if (ctrlDown || shiftDown) {
+            if (PMode || MultiMode) {
                 if (HoveredSegmentId == 0) {
                     return;
                 }
@@ -43,46 +39,28 @@ namespace TrafficManager.UI.SubTools {
             }
 
             // TODO provide revert/clear mode issue #568
-            if (ctrlDown && shiftDown) {
+            if (PMode && MultiMode) {
                 bool isRAbout = RoundaboutMassEdit.Instance.FixRabout(HoveredSegmentId);
                 if (!isRAbout) {
-                    PriorityRoad.FixRoad(HoveredSegmentId, altDown);
+                    PriorityRoad.FixRoad(HoveredSegmentId, MPMode);
                 }
                 RefreshMassEditOverlay();
                 return;
-            } else if (ctrlDown) {
-                PriorityRoad.FixJunction(HoveredNodeId, altDown);
+            } else if (PMode) {
+                PriorityRoad.FixJunction(HoveredNodeId, MPMode);
                 RefreshMassEditOverlay();
                 return;
             }
-            if (shiftDown) {
-                var primaryPrioType = PriorityType.None;
-                var secondaryPrioType = PriorityType.None;
+            if (MultiMode) {
+                PriorityType primaryPrioType = PriorityType.None;
+                PriorityType secondaryPrioType = PriorityType.None;
 
-                switch (massEditMode) {
-                    case PrioritySignsMassEditMode.MainYield: {
-                            primaryPrioType = PriorityType.Main;
-                            secondaryPrioType = PriorityType.Yield;
-                            break;
-                        }
-
-                    case PrioritySignsMassEditMode.MainStop: {
-                            primaryPrioType = PriorityType.Main;
-                            secondaryPrioType = PriorityType.Stop;
-                            break;
-                        }
-
-                    case PrioritySignsMassEditMode.YieldMain: {
-                            primaryPrioType = PriorityType.Yield;
-                            secondaryPrioType = PriorityType.Main;
-                            break;
-                        }
-
-                    case PrioritySignsMassEditMode.StopMain: {
-                            primaryPrioType = PriorityType.Stop;
-                            secondaryPrioType = PriorityType.Main;
-                            break;
-                        }
+                if (UseStopSigns) { 
+                    primaryPrioType = PriorityType.Main;
+                    secondaryPrioType = PriorityType.Stop;
+                } else {
+                    primaryPrioType = PriorityType.Main;
+                    secondaryPrioType = PriorityType.Yield;
                 }
 
                 IExtSegmentEndManager segEndMan = Constants.ManagerFactory.ExtSegmentEndManager;
@@ -159,7 +137,177 @@ namespace TrafficManager.UI.SubTools {
             RefreshCurrentPriorityNodeIds();
         }
 
-        public override void OnToolGUI(Event e) { }
+        #region test GUI
+        private Rect windowRect = TrafficManagerTool.MoveGUI(new Rect(0, 0, 1, 1));
+        private bool cursorInSecondaryPanel;
+        private Texture2D windowTexture_;
+        private GUIStyle windowStyle_;
+
+        protected GUIStyle WindowStyle =>
+            windowStyle_ ?? (windowStyle_ = new GUIStyle {
+                normal = {
+                                        background = WindowTexture,
+                                        textColor = Color.white
+                                    },
+                alignment = TextAnchor.UpperCenter,
+                fontSize = 20,
+                border = {
+                                        left = 4,
+                                        top = 41,
+                                        right = 4,
+                                        bottom = 8
+                                    },
+                overflow = {
+                                        bottom = 0,
+                                        top = 0,
+                                        right = 12,
+                                        left = 12
+                                    },
+                contentOffset = new Vector2(0, -44),
+                padding = {
+                                        top = 55
+                                    }
+            });
+        private Texture2D WindowTexture {
+            get {
+                if (windowTexture_ == null) {
+                    windowTexture_ = TrafficManagerTool.AdjustAlpha(
+                        Textures.MainMenu.WindowBackground,
+                        TrafficManagerTool.GetWindowAlpha());
+                }
+
+                return windowTexture_;
+            }
+        }
+
+        public override void OnToolGUI(Event e) {
+            base.OnToolGUI(e);
+
+            if (SelectedSegmentId != 0) {
+                cursorInSecondaryPanel = false;
+
+                windowRect = GUILayout.Window(
+                    255,
+                    windowRect,
+                    ToolWindow,
+                    "",
+                    WindowStyle);
+                cursorInSecondaryPanel = windowRect.Contains(Event.current.mousePosition);
+
+            }
+
+        }
+
+        private static bool shift => Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift);
+        private static bool alt => Input.GetKey(KeyCode.LeftAlt) || Input.GetKey(KeyCode.RightAlt);
+        private static bool ctrl => Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl);
+
+
+        enum PrioirtyLevel {
+            None=0,
+            Meduim,
+            High,
+        }
+
+        PrioirtyLevel _priorityLevel = 0;
+        bool _multiMode = false;
+
+        bool MultiMode => _multiMode || shift;
+        bool SimpleMode => _priorityLevel == PrioirtyLevel.None && !ctrl;
+        bool HPMode => !(alt && ctrl) && (_priorityLevel == PrioirtyLevel.High || ctrl);
+        bool MPMode => (alt && ctrl) || _priorityLevel == PrioirtyLevel.Meduim;
+        bool PMode => HPMode || MPMode;
+
+        private void AddShiftButton() {
+            Color oldColor = GUI.color;
+
+            GUIStyle style = new GUIStyle("button");
+            if (shift) {
+                GUI.color = Color.blue;
+                style.normal.background = style.active.background;
+            }
+
+            bool clicked = GUILayout.Button("Road/Rabout [shift]", style);
+            if (clicked)
+                _multiMode = !_multiMode;
+
+            GUI.color = oldColor;
+        }
+
+        private void AddHPButton() {
+            Color oldColor = GUI.color;
+
+            GUIStyle style = new GUIStyle("button");
+            if (ctrl && !alt)
+                style.normal.background = style.active.background;
+            if(shift)
+                GUI.color = Color.blue;
+
+
+            bool clicked = GUILayout.Button("High proirty [ctrl]", style);
+            if (clicked) {
+                _priorityLevel =
+                    _priorityLevel != PrioirtyLevel.High ?
+                    PrioirtyLevel.High :
+                    PrioirtyLevel.None;
+            }
+
+            GUI.color = oldColor;
+        }
+
+        private void AddMPButton() {
+            Color oldColor = GUI.color;
+
+            GUIStyle style = new GUIStyle("button");
+            if (ctrl && alt)
+                style.normal.background = style.active.background;
+            if (shift)
+                GUI.color = Color.blue;
+
+            bool clicked = GUILayout.Button("Meduim proirty [alt+ctrl]", style);
+            if (clicked) {
+                _priorityLevel =
+                    _priorityLevel != PrioirtyLevel.High ?
+                    PrioirtyLevel.Meduim :
+                    PrioirtyLevel.None;
+            }
+
+            GUI.color = oldColor;
+        }
+
+        private void AddClearButton() {
+            Color oldColor = GUI.color;
+
+            GUIStyle style = new GUIStyle("button");
+            KeyCode hotkey = KeyCode.Delete;
+
+            if (Input.GetKey(hotkey))
+                style.normal.background = style.active.background;
+            if (shift)
+                GUI.color = Color.blue;
+
+            bool clicked =
+                GUILayout.Button("Clear [del]", style)
+                || Input.GetKeyDown(hotkey);
+
+            if (clicked) {
+                
+            }
+
+            GUI.color = oldColor;
+        }
+
+        bool UseStopSigns = false;
+        private void ToolWindow(int num) {
+            GUILayout.Toggle(UseStopSigns, "Use Stop Signs");
+            AddShiftButton();
+            AddMPButton();
+            AddHPButton();
+            AddClearButton();
+            DragWindow(ref windowRect);
+        }
+
+        #endregion
 
         /// <summary>
         /// Thread safe handling of mass edit overlay.
@@ -356,6 +504,9 @@ namespace TrafficManager.UI.SubTools {
             {
                 return;
             }
+
+            if (!viewOnly && cursorInSecondaryPanel)
+                return;
 
             ShowGUI(viewOnly);
         }
